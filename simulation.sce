@@ -133,7 +133,7 @@ function[output]=iteration(timeline, dt)
     //this matrix will hold every particle-particle-distance.
     distance=zeros(particle_number-1,particle_number-1)
     //this matrix will keep track of which particle already has distances to which particles.
-    addoneup=ones(particle_number-1,1)
+    addoneup=ones(particle_number,1)
     //iterate over all our timesteps, effectively creating a look in the past.
     disp(flash)
     for flashback=1:dt-1
@@ -156,34 +156,31 @@ function[output]=iteration(timeline, dt)
         thistime=flash&check
         //remove particles of this run from our pool:
         flash=flash&(~check);
-        disp('BLAAAAAAAAARGH!')
-        disp(size(thistime))
-        disp(particle_number)
-        //disp(flash)
         //since rows can be filled to a different point and each row can get different number of particles, we need an iteraion:
         for t=1:particle_number
             selection=thistime(t,:);
             //if no particle is to be added in this row, we can move on.
             if or(selection) then
-                //the addoneup(selection) tells us, at which place to insert the current selection
-                current_dist(addoneup,:,selection)=timeline(selection,:,dt-flashback);
-                //and of course the next time we want to overwrite the next value
-                addoneup(selection)=(addoneup(selection)+1);
-            else
-                disp('WUAAAAAAARGH!')
+                for i=1:particle_number
+                    if selection(i) then
+                        //the addoneup(i) tells us, at which place to insert the current selection
+                        current_dist(addoneup(i),:,i)=timeline(i,:,dt-flashback)'
+                        //and of course the next time we want to overwrite the next value
+                        addoneup(i)=(addoneup(i)+1);
+                    end;
+                end;
             end;
         end;
     end;
-    disp(flash)
     //disp(current_dist)
     //Now some particles will be left, because they have no history in our simulation.
     //We aproximate their history by adding all particles from our exposition.
-    if dt==1 then
+    if or(flash) then
         for t=1:particle_number
-            selection=flash(:,t)
+            selection=flash(:,t);
             if or(selection) then
                 //this time we add all the remaining particles until one particle's environment is complete
-                current_dist(selection,:,[addoneup(t):$])=timeline(selection,:,1);
+                current_dist([addoneup(t):$],:,t)=timeline(selection,:,1);
             end;
         end;
     end;
