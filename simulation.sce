@@ -1,15 +1,15 @@
 //Define variables:
 Epsilon0=625000/(22468879468420441*%pi);
-singcharge=-5//-1.602177*10^(-19);
+singcharge=1.602177*10^(-19);
 c=299792458;
 maxparticles=10;
-timestep=10^-1;
-duration=10^-0;
+timestep=10^(-10);
+duration=10^(-9);
 steps=int(duration/timestep)
 rmax=1.5*10^-2;
 width=10000/c*rmax
 maxcharge=7000;
-particle_mass=1//1.672621777*10^(-27)
+particle_mass=1.672621777*10^(-27)
 
 delay=rmax/c*0.1;
 
@@ -43,9 +43,7 @@ endfunction
 
 //scalaR  returns the Lorentz-transformated distances as scalars, no direction!
 function[scalmat]=scalaRSQ(r, vels, gammsq)
-//    r=vectoR(pars,par);
-    //topar=gammsq.*squeeze(1+c^(-2)*(-sum(vels.^2,2).*sum(r.^2,2)+sum((r.*vels),2).^2))
-    topar=(gammsq-1).*squeeze(sum(r+vels,2)).^(2)./squeeze(sum(r.^2,2))+squeeze(sum(r.^2,2))
+    topar=gammsq.*squeeze(sum(r+vels,2)).^(2)./squeeze(sum(r.^2,2))+squeeze(sum(r.^2,2))
     scalmat=squeeze(topar)
 endfunction
 
@@ -57,10 +55,9 @@ function[scalmat]=scalaRSQpar(r,vels,gammsq)
     //multiplying each particle of all particles with their corresponding mul results in a scalar product of all particles with the right particle
     scalrpar=squeeze(sum(cat(3,squeeze(r(:,1,:))*mul1,squeeze(r(:,2,:))*mul2,squeeze(r(:,3,:))*mul3),3))
     //scalrpar is the scalar product (velocitie*(pos-pos0))
-    //frompar=scalrpar.^2-squeeze(sum(r.^2,2))*diag(sum(vels.^2,2))))*diag(gammsq)
-    
+
     ////// SOMEWHERE IN HERE BUG!!!!!
-    frompar=scalrpar.^(2)./squeeze(sum(r.^2,2)).*(gammsq-1)+squeeze(sum(r.^2,2))
+    frompar=(scalrpar.^(2)./squeeze(sum(r.^2,2)))*diag((gammsq-1))+squeeze(sum(r.^2,2))
     scalmat=squeeze(frompar)
 endfunction
 
@@ -120,7 +117,7 @@ endfunction
 //simulation function:
 function[output]=iteration(timeline, dt)
     adding=ones(particle_number,particle_number)
-    simuv=timeline(:,[11:13],dt)*timestep/2+timeline(:,[4:6],dt)
+    simuv=timeline(:,[4:6],dt)+timeline(:,[11:13],dt)*(timestep/2)
     simu_time=zeros(particle_number,13)// ATTENTION! WRONG NUMBER OF LINES!!!! Just testcase!
     simu_time(:,[1:13])=[squeeze(timeline(:,[1:3],dt)),simuv(:,:),Gammasq(simuv),squeeze(timeline(:,[8:13],dt))]
     //create a True-Matrix with a False-Identity
@@ -135,7 +132,6 @@ function[output]=iteration(timeline, dt)
     //this matrix will keep track of which particle already has distances to which particles.
     addoneup=ones(particle_number,1)
     //iterate over all our timesteps, effectively creating a look in the past.
-    disp(flash)
     for flashback=1:dt-1
         //calculating our distances, creating only the upper half of a diagonal matrix! (lower half is transponation of upper half.)
         //rsults in quare matrix with particle_number - 1 cols/rows
@@ -157,22 +153,18 @@ function[output]=iteration(timeline, dt)
         //remove particles of this run from our pool:
         flash=flash&(~check);
         //since rows can be filled to a different point and each row can get different number of particles, we need an iteraion:
-        for t=1:particle_number
+        for t=1:particle_number;
             selection=thistime(t,:);
             //if no particle is to be added in this row, we can move on.
-            if or(selection) then
-                for i=1:particle_number
-                    if selection(i) then
-                        //the addoneup(i) tells us, at which place to insert the current selection
-                        current_dist(addoneup(i),:,i)=timeline(i,:,dt-flashback)'
-                        //and of course the next time we want to overwrite the next value
-                        addoneup(i)=(addoneup(i)+1);
-                    end;
-                end;
+            if or(selection) then;
+                sel=timeline(:,:,dt-flashback)
+                sel(~selection,:)=[]
+                si=size(sel)
+                current_dist([addoneup(t):(addoneup(t)+si(1)-1)],:,t)=sel;
+                addoneup(t)=+si(1);
             end;
         end;
     end;
-    //disp(current_dist)
     //Now some particles will be left, because they have no history in our simulation.
     //We aproximate their history by adding all particles from our exposition.
     if or(flash) then
@@ -193,10 +185,9 @@ function[output]=iteration(timeline, dt)
     //A=vecPotByPar(v,scalmat)
     E=elecByPar(scalmat,gam)
     ve=vectoRE(current_dist(:,[4:6],:))
-        disp('BLAAAAAAAAARGH!')
     vSq_ov_c=sum(current_dist(:,[4:6],:).^2,2)./c^2
     prefield=v
-    lortra=scalaRSQpar(r,simuv,squeeze(current_dist(:,7,:)))
+    lortra=scalaRSQpar(r,simuv,simu_time(:,7))//squeeze(current_dist(:,7,:)))
     test=squeeze(1-vSq_ov_c)
     for p= 1:particle_number
         prefield(:,:,p)=diag(lortra(:,p))*(diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p)))
@@ -212,27 +203,27 @@ function[output]=iteration(timeline, dt)
     acc = cor*field.*singcharge./particle_mass
     //creating a return matrix
     ret=zeros(particle_number,13)
-    accv=acc*timestep
-    testacc=simuv+accv
-    if or(testacc>c) then
-        tempt=timestep
-        global(timestep)=timestep/2
-        ret=iteration(timeline,dt)
-        global(timestep)=tempt
-        output=ret
-    end
-    vel=testacc-accv/2
+//    accv=acc*timestep
+//    testacc=simuv+accv
+//    if or(testacc>c) then
+//        tempt=timestep
+//        global(timestep)=timestep/2
+//        ret=iteration(timeline,dt)
+//        global(timestep)=tempt
+//        output=ret
+//    end
+    vel=simuv+acc*timestep/2
     ret(:,[1:3])=simu_time(:,[1:3])+vel*timestep
     ret(:,[4:6])=vel
     ret(:,7)=Gammasq(vel)
     ret(:,[8:10])=squeeze(sum(vecE,1))'
-    ret(:,[$-2:$])=acc
+    ret(:,[($-2):$])=acc
     output=ret
 endfunction
 
 //exposition:
 //Creating starting-conditions:
-fs=[grand(maxparticles,2,'unf',-rmax,+rmax),grand(maxparticles,1,'unf',0,width),grand(maxparticles,2,'nor',1000,200),grand(maxparticles,1,'nor',40000000,200)];
+fs=[grand(maxparticles,2,'unf',-rmax,+rmax),grand(maxparticles,1,'unf',0,width),grand(maxparticles,2,'nor',0,1000),grand(maxparticles,1,'nor',40000000,200)];
 R=rmax^2;
 particles=fs((sum(fs(:,[1:2]).^2,2)<R),:);
 pre=size(particles);
@@ -263,7 +254,7 @@ E=elecByPar(scalmat,gam)
 ve=vectoRE(metapar(:,[4:6],:))
 vSq_ov_c=sum(metapar(:,[4:6],:).^2,2)./c^2
 prefield=v
-lortra=scalaRSQpar(r,particles(:,[4:6]),squeeze(metapar(:,7,:)))
+lortra=scalaRSQpar(r,particles(:,[4:6]),particles(:,7))//squeeze(metapar(:,7,:)))
 test=squeeze(1-vSq_ov_c)
 //    prefield(:,:,p)=diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p))
 for p= 1:particle_number
@@ -287,7 +278,7 @@ saving(:,[11:13],1)=diag(correction(particles(:,[4:6]),particles(:,7)))*acc
 
 //simulation:
 for dt=[1:steps] //first step is the exposition!
-    disp("ATTENTION!!!!!")
+    disp("simulationstep:"+string(dt))
     next=iteration(saving,dt)
     saving(:,:,dt+1)=next
 end
