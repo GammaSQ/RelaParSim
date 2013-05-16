@@ -88,8 +88,8 @@ endfunction
 //not implemented, gets defined via electrical field.
 
 //define field by particles:
-function[elecscal]=elecByPar(scalaR,gammsq)
-    elecscal=-gammsq./scalaR.*((particle_number-1)*singcharge)
+function[elecscal]=elecByPar(scalaR,charge,gammsq)
+    elecscal=-gammsq.*charge./scalaR.*(particle_number-1)
 endfunction
 
 //Define field function:
@@ -118,7 +118,7 @@ function[output]=iteration(timeline, dt)
     pro=zeros(particle_number,particle_number)
     flash=(pro==(pro+eye(particle_number,particle_number)))
     //create the empty matrix to be our current distribution
-    current_dist=hypermat([particle_number-1,13,particle_number])
+    current_dist=hypermat([particle_number-1,9,particle_number])
     //Just a unit-matrix, cause we will need it.
     unit=ones(particle_number,particle_number)
     //this matrix will hold every particle-particle-distance.
@@ -151,8 +151,7 @@ function[output]=iteration(timeline, dt)
             selection=thistime(t,:);
             //if no particle is to be added in this row, we can move on.
             if or(selection) then;
-                sel=timeline(:,:,dt-flashback)
-                sel(~selection,:)=[]
+                sel=[timeline(selection,[1:7],dt-flashback),parmeta(selection,:)]
                 si=size(sel)
                 current_dist([addoneup(t):(addoneup(t)+si(1)-1)],:,t)=sel;
                 addoneup(t)=+si(1)+1;
@@ -166,18 +165,19 @@ function[output]=iteration(timeline, dt)
             selection=flash(t,:);
             if or(selection) then
                 //this time we add all the remaining particles until one particle's environment is complete
-                current_dist([addoneup(t):$],:,t)=squeeze(timeline(selection,:,1));
+                current_dist([addoneup(t):$],:,t)=[squeeze(timeline(selection,[1:7],1)),parmeta(selection,:)]
             end;
         end;
     end;
     gam=squeeze(current_dist(:,7,:))
+    charge=squeeze(current_dist(:,8,:))
     r=vectoR(current_dist(:,[1:3],:),simu_time(:,[1:3]))
     re=vectoRE(r)
     v=vDiff(current_dist(:,[4:6],:),simu_time(:,[4:6]))
     scalmat=scalaRSQ(r,v,gam)
     R=loRezSQ(scalmat,re)
     //A=vecPotByPar(v,scalmat)
-    E=elecByPar(scalmat,gam)
+    E=elecByPar(scalmat,charge,gam)
     ve=vectoRE(current_dist(:,[4:6],:))
     vSq_ov_c=sum(current_dist(:,[4:6],:).^2,2)./c^2
     prefield=v
@@ -193,8 +193,8 @@ function[output]=iteration(timeline, dt)
         vecE(:,:,i)=diag(E(:,i))*squeeze(re(:,:,i))
     end
     //calculating the correctional value due to velocity of particle (at v+a*t/2)
-    cor=diag(correction(simu_time(:,[4:6]),simu_time(:,7)))
-    acc = cor*field.*singcharge./particle_mass
+    cor=diag(correction(simu_time(:,[4:6]),simu_time(:,7)).*parmeta(:,1)./parmeta(:,2))
+    acc = cor*field
     //creating a return matrix
     ret=zeros(particle_number,13)
 //    accv=acc*timestep
@@ -230,12 +230,16 @@ particles=fs((sum(fs(:,[1:2]).^2,2)<R),:);
 pre=size(particles);
 particle_number=pre(1);
 zer=zeros(particle_number,13);
-metapar=hypermat([particle_number-1,7,particle_number]);
+metapar=hypermat([particle_number-1,9,particle_number]);
 particles(:,7)=Gammasq(particles(:,[4:6]))
+parmeta=zeros(particle_number,2)
+parmeta(:,1)=singcharge
+parmeta(:,2)=particle_mass
 for i=1:(particle_number);
     //metapar(1,:,i)=particles(i,[1:6]);
-    sel=zeros(particles);
-    sel(:,:)=particles
+    sel=zeros(particle_number,9);
+    sel(:,[1:7])=particles
+    sel(:,[8:9])=parmeta
     sel(i,:)=[]
     metapar([1:$],:,i)=sel;
 end
@@ -251,7 +255,7 @@ end
 scalmat=scalaRSQ(r,v,gam)
 R=loRezSQ(scalmat,re)
 //A=vecPotByPar(v,scalmat)
-E=elecByPar(scalmat,gam)
+E=elecByPar(scalmat,squeeze(metapar(:,8,:)),gam)
 ve=vectoRE(metapar(:,[4:6],:))
 vSq_ov_c=sum(metapar(:,[4:6],:).^2,2)./c^2
 prefield=v
@@ -267,9 +271,8 @@ vecE=zeros(particle_number-1,3,particle_number)
 for i=1:particle_number
     vecE(:,:,i)=diag(E(:,i))*squeeze(re(:,:,i))
 end
-
-cor=diag(correction(particles(:,[4:6]),particles(:,7)))
-acc = cor*field.*singcharge./particle_mass//diag(correction(particles(:,[4:6]),particles(:,7)))*field.*singcharge
+cor=diag(correction(particles(:,[4:6]),particles(:,7)).*parmeta(:,1)./parmeta(:,2))
+acc = cor*field//diag(correction(particles(:,[4:6]),particles(:,7)))*field.*singcharge
 zer(:,[1:10])=[particles(:,[1:7]),squeeze(sum(vecE,1))']
 zer(:,[$-2:$])=acc
 
@@ -282,6 +285,6 @@ for dt=[1:steps] //first step is the exposition!
     disp("simulationstep:"+string(dt))
     next=iteration(saving,dt)
     saving(:,:,dt+1)=next
-disp((sum(sum(saving(:,[4:6],dt),1).^2,2)-sum(sum(saving(:,[4:6],1),1).^2,2))./sum(sum(saving(:,[4:6],dt),1).^2,2))
+disp((sum(saving(:,[4:6],dt+1),1)-sum(saving(:,[4:6],dt),1))./sum(saving(:,[4:6],dt+1),1))//(sum(sum(saving(:,[4:6],dt+1),1).^2,2)-sum(sum(saving(:,[4:6],dt),1).^2,2))./sum(sum(saving(:,[4:6],dt),1).^2,2))
 //disp(sum(sum(saving(:,[4:6],dt),1).^2,2))
 end
