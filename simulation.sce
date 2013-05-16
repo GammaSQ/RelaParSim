@@ -1,17 +1,11 @@
 //Define variables:
 Epsilon0=625000/(22468879468420441*%pi);
-singcharge=1.602177*10^(-19);
+singcharge=0.0001//1.602177*10^(-19);
 c=299792458;
-maxparticles=10;
 timestep=10^(-10);
 duration=10^(-9);
 steps=int(duration/timestep)
-rmax=1.5*10^-2;
-width=10000/c*rmax
-maxcharge=7000;
 particle_mass=1.672621777*10^(-27)
-
-delay=rmax/c*0.1;
 
 //Define basic geometrics:
 function[vector]=vectoR(pars,par)
@@ -161,7 +155,7 @@ function[output]=iteration(timeline, dt)
                 sel(~selection,:)=[]
                 si=size(sel)
                 current_dist([addoneup(t):(addoneup(t)+si(1)-1)],:,t)=sel;
-                addoneup(t)=+si(1);
+                addoneup(t)=+si(1)+1;
             end;
         end;
     end;
@@ -169,10 +163,10 @@ function[output]=iteration(timeline, dt)
     //We aproximate their history by adding all particles from our exposition.
     if or(flash) then
         for t=1:particle_number
-            selection=flash(:,t);
+            selection=flash(t,:);
             if or(selection) then
                 //this time we add all the remaining particles until one particle's environment is complete
-                current_dist([addoneup(t):$],:,t)=timeline(selection,:,1);
+                current_dist([addoneup(t):$],:,t)=squeeze(timeline(selection,:,1));
             end;
         end;
     end;
@@ -223,7 +217,14 @@ endfunction
 
 //exposition:
 //Creating starting-conditions:
-fs=[grand(maxparticles,2,'unf',-rmax,+rmax),grand(maxparticles,1,'unf',0,width),grand(maxparticles,2,'nor',0,1000),grand(maxparticles,1,'nor',40000000,200)];
+maxparticles=10;
+rmax=1.5*10^-2;
+width=10000/c*rmax
+maxcharge=7000;
+delay=rmax/c*0.1;
+
+//,grand(maxparticles,1,'unf',0,width),grand(maxparticles,1,'nor',40000000,200)
+fs=[grand(maxparticles,3,'unf',-rmax,+rmax),grand(maxparticles,3,'nor',0,1000)];
 R=rmax^2;
 particles=fs((sum(fs(:,[1:2]).^2,2)<R),:);
 pre=size(particles);
@@ -281,5 +282,6 @@ for dt=[1:steps] //first step is the exposition!
     disp("simulationstep:"+string(dt))
     next=iteration(saving,dt)
     saving(:,:,dt+1)=next
+disp((sum(sum(saving(:,[4:6],dt),1).^2,2)-sum(sum(saving(:,[4:6],1),1).^2,2))./sum(sum(saving(:,[4:6],dt),1).^2,2))
+//disp(sum(sum(saving(:,[4:6],dt),1).^2,2))
 end
-disp(saving)
