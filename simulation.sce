@@ -1,11 +1,23 @@
 //Define variables:
 Epsilon0=625000/(22468879468420441*%pi);
-singcharge=0.0001//1.602177*10^(-19);
+singcharge=0.00001//1.602177*10^(-19);
 c=299792458;
 timestep=10^(-10);
 duration=10^(-9);
 steps=int(duration/timestep)
-particle_mass=1.672621777*10^(-27)
+particle_mass=1.672621777*10^(-27)//Creating starting-conditions:
+maxparticles=10;
+rmax=1.5*10^-2;
+width=10000/c*rmax
+maxcharge=7000;
+delay=rmax/c*0.1;
+
+//,grand(maxparticles,1,'unf',0,width),grand(maxparticles,1,'nor',40000000,200)
+fs=[grand(maxparticles,3,'unf',-rmax,+rmax),grand(maxparticles,3,'nor',0,1000)];
+R=rmax^2;
+prime_dist=fs((sum(fs(:,[1:3]).^2,2)<R),:);
+prime_dist(:,7)=singcharge
+prime_dist(:,8)=particle_mass
 
 //Define basic geometrics:
 function[vector]=vectoR(pars,par)
@@ -109,7 +121,8 @@ endfunction
 
 
 //simulation function:
-function[output]=iteration(timeline, dt)
+function[output]=iteration(timeline, dt, time)
+    timestep=time/dt
     adding=ones(particle_number,particle_number)
     simuv=timeline(:,[4:6],dt)+timeline(:,[11:13],dt)*(timestep/2)
     simu_time=zeros(particle_number,13)// ATTENTION! WRONG NUMBER OF LINES!!!! Just testcase!
@@ -197,94 +210,99 @@ function[output]=iteration(timeline, dt)
     acc = cor*field
     //creating a return matrix
     ret=zeros(particle_number,13)
-//    accv=acc*timestep
-//    testacc=simuv+accv
+    accv=acc*timestep
+    testacc=simuv+accv
 //    if or(testacc>c) then
-//        tempt=timestep
-//        global(timestep)=timestep/2
-//        ret=iteration(timeline,dt)
-//        global(timestep)=tempt
-//        output=ret
+//        tmp=duration
+//        duration=time/2+timestep
+//        pre=iteration(timeline,dt,time/2)
+////        tempt=timestep
+////        global(timestep)=timestep/2
+////        ret=iteration(timeline,dt)
+////        global(timestep)=tempt
+////        output=ret
+//        duration=tmp
+//        len=size(pre)
+//        timeline(:,:,dt:dt+len(3))=pre
+//        diffsteps=
+//    else
+        vel=simuv+acc*timestep/2
+        ret(:,[1:3])=simu_time(:,[1:3])+vel*timestep
+        ret(:,[4:6])=vel
+        ret(:,7)=Gammasq(vel)
+        ret(:,[8:10])=squeeze(sum(vecE,1))'
+        ret(:,[($-2):$])=acc
+        disp(time)
+        if time>=duration then
+            output=ret
+        else
+            timeline(:,:,dt+1)=ret
+            output=iteration(timeline,dt+1,time+timestep)
+        end
 //    end
-    vel=simuv+acc*timestep/2
-    ret(:,[1:3])=simu_time(:,[1:3])+vel*timestep
-    ret(:,[4:6])=vel
-    ret(:,7)=Gammasq(vel)
-    ret(:,[8:10])=squeeze(sum(vecE,1))'
-    ret(:,[($-2):$])=acc
-    output=ret
 endfunction
 
-//exposition:
-//Creating starting-conditions:
-maxparticles=10;
-rmax=1.5*10^-2;
-width=10000/c*rmax
-maxcharge=7000;
-delay=rmax/c*0.1;
-
-//,grand(maxparticles,1,'unf',0,width),grand(maxparticles,1,'nor',40000000,200)
-fs=[grand(maxparticles,3,'unf',-rmax,+rmax),grand(maxparticles,3,'nor',0,1000)];
-R=rmax^2;
-particles=fs((sum(fs(:,[1:2]).^2,2)<R),:);
-pre=size(particles);
-particle_number=pre(1);
-zer=zeros(particle_number,13);
-metapar=hypermat([particle_number-1,9,particle_number]);
-particles(:,7)=Gammasq(particles(:,[4:6]))
-parmeta=zeros(particle_number,2)
-parmeta(:,1)=singcharge
-parmeta(:,2)=particle_mass
-for i=1:(particle_number);
-    //metapar(1,:,i)=particles(i,[1:6]);
-    sel=zeros(particle_number,9);
-    sel(:,[1:7])=particles
-    sel(:,[8:9])=parmeta
-    sel(i,:)=[]
-    metapar([1:$],:,i)=sel;
-end
-
-gam=squeeze(metapar(:,7,:))
-r=vectoR(metapar(:,[1:3],:),particles(:,[1:3]))
-re=vectoRE(r)
-v=vectoR(metapar(:,[4:6],:),particles(:,[4:6]))
-// MAJOR BUG!!!!! r sometimes creates/loses particles, no idea why! (v and r work the same, v doesn't have that problem.)
-if ~(size(r) == size(v)) then
-    disp('BLAHRG!')
-end
-scalmat=scalaRSQ(r,v,gam)
-R=loRezSQ(scalmat,re)
-//A=vecPotByPar(v,scalmat)
-E=elecByPar(scalmat,squeeze(metapar(:,8,:)),gam)
-ve=vectoRE(metapar(:,[4:6],:))
-vSq_ov_c=sum(metapar(:,[4:6],:).^2,2)./c^2
-prefield=v
-lortra=scalaRSQpar(r,particles(:,[4:6]),particles(:,7))//squeeze(metapar(:,7,:)))
-test=squeeze(1-vSq_ov_c)
-//    prefield(:,:,p)=diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p))
-for p= 1:particle_number
-    prefield(:,:,p)=diag(lortra(:,p))*(diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p)))
-end
-field=squeeze(sum(prefield,1))'
-
-vecE=zeros(particle_number-1,3,particle_number)
-for i=1:particle_number
-    vecE(:,:,i)=diag(E(:,i))*squeeze(re(:,:,i))
-end
-cor=diag(correction(particles(:,[4:6]),particles(:,7)).*parmeta(:,1)./parmeta(:,2))
-acc = cor*field//diag(correction(particles(:,[4:6]),particles(:,7)))*field.*singcharge
-zer(:,[1:10])=[particles(:,[1:7]),squeeze(sum(vecE,1))']
-zer(:,[$-2:$])=acc
-
-saving=hypermat([particle_number, 13, steps])
-saving(:,[1:10],1)=[particles(:,[1:3]), particles(:,[4:6])+diag(correction(particles(:,[4:6]),particles(:,7)))*acc.*(timestep/2), zer(:,[7:10])]
-saving(:,[11:13],1)=diag(correction(particles(:,[4:6]),particles(:,7)))*acc
-
-//simulation:
-for dt=[1:steps] //first step is the exposition!
-    disp("simulationstep:"+string(dt))
-    next=iteration(saving,dt)
-    saving(:,:,dt+1)=next
-disp((sum(saving(:,[4:6],dt+1),1)-sum(saving(:,[4:6],dt),1))./sum(saving(:,[4:6],dt+1),1))//(sum(sum(saving(:,[4:6],dt+1),1).^2,2)-sum(sum(saving(:,[4:6],dt),1).^2,2))./sum(sum(saving(:,[4:6],dt),1).^2,2))
-//disp(sum(sum(saving(:,[4:6],dt),1).^2,2))
-end
+function[timeline]=simulation(prime_dist)
+    //exposition:
+    pre=size(prime_dist);
+    particle_number=pre(1);
+    zer=zeros(particle_number,13);
+    metapar=hypermat([particle_number-1,9,particle_number]);
+    particles=zeros(particle_number,7)
+    particles=[prime_dist(:,[1:6]),Gammasq(prime_dist(:,[4:6]))]
+    parmeta=prime_dist(:,[7:8])
+    for i=1:(particle_number);
+        //metapar(1,:,i)=particles(i,[1:6]);
+        sel=zeros(particle_number,9);
+        sel(:,[1:7])=particles
+        sel(:,[8:9])=parmeta
+        sel(i,:)=[]
+        metapar([1:$],:,i)=sel;
+    end
+    
+    gam=squeeze(metapar(:,7,:))
+    r=vectoR(metapar(:,[1:3],:),particles(:,[1:3]))
+    re=vectoRE(r)
+    v=vectoR(metapar(:,[4:6],:),particles(:,[4:6]))
+    // MAJOR BUG!!!!! r sometimes creates/loses particles, no idea why! (v and r work the same, v doesn't have that problem.)
+    if ~(size(r) == size(v)) then
+        disp('BLAHRG!')
+    end
+    scalmat=scalaRSQ(r,v,gam)
+    R=loRezSQ(scalmat,re)
+    //A=vecPotByPar(v,scalmat)
+    E=elecByPar(scalmat,squeeze(metapar(:,8,:)),gam)
+    ve=vectoRE(metapar(:,[4:6],:))
+    vSq_ov_c=sum(metapar(:,[4:6],:).^2,2)./c^2
+    prefield=v
+    lortra=scalaRSQpar(r,particles(:,[4:6]),particles(:,7))//squeeze(metapar(:,7,:)))
+    test=squeeze(1-vSq_ov_c)
+    //    prefield(:,:,p)=diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p))
+    for p= 1:particle_number
+        prefield(:,:,p)=diag(lortra(:,p))*(diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p)))
+    end
+    field=squeeze(sum(prefield,1))'
+    
+    vecE=zeros(particle_number-1,3,particle_number)
+    for i=1:particle_number
+        vecE(:,:,i)=diag(E(:,i))*squeeze(re(:,:,i))
+    end
+    cor=diag(correction(particles(:,[4:6]),particles(:,7)).*parmeta(:,1)./parmeta(:,2))
+    acc = cor*field//diag(correction(particles(:,[4:6]),particles(:,7)))*field.*singcharge
+    zer(:,[1:10])=[particles(:,[1:7]),squeeze(sum(vecE,1))']
+    zer(:,[$-2:$])=acc
+    
+    saving=hypermat([particle_number, 13, steps])
+    saving(:,[1:10],1)=[particles(:,[1:3]), particles(:,[4:6])+diag(correction(particles(:,[4:6]),particles(:,7)))*acc.*(timestep/2), zer(:,[7:10])]
+    saving(:,[11:13],1)=diag(correction(particles(:,[4:6]),particles(:,7)))*acc
+    
+    //simulation:
+//    for dt=[1:steps] //first step is the exposition!
+//        disp("simulationstep:"+string(dt))
+//        next=iteration(saving,dt)
+//        saving(:,:,dt+1)=next
+//        disp(sum(saving(:,11:13,dt+1),1)*timestep./sum(saving(:,4:6,dt),1))
+//    end
+    timeline=iteration(saving,1,timestep)
+endfunction
+disp(simulation(prime_dist))
