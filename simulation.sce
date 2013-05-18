@@ -2,7 +2,7 @@
 Epsilon0=625000/(22468879468420441*%pi);
 singcharge=0.00001//1.602177*10^(-19);
 c=299792458;
-timestep=10^(-10);
+stepsize=10^(-10);
 duration=10^(-9);
 steps=int(duration/timestep)
 particle_mass=1.672621777*10^(-27)//Creating starting-conditions:
@@ -121,8 +121,39 @@ endfunction
 
 
 //simulation function:
-function[output]=iteration(timeline, dt, time)
-    timestep=time/dt
+function[output]=iteration(timeline, timestep, dt,time,final)
+    nl=argn(2)
+    if nl>5 then
+        error("Expecting 5 arguments at most")
+    end
+    if nl<2 then
+        error("timeline and initial timestep-size have to be defined!")
+    end
+    if nl<3 then
+        dt=1
+        time=0
+    end
+    if nl==3 then
+        error("current time and timestep-number have both to be set or unset!")
+    end
+    if nl<5 then
+        final=duration
+    end
+    if typeof(timeline)~="hypermat" then
+        error("Expecting a real-valued hypermat-matrix as timeline, got "+typeof(timeline))
+    end
+    si=size(timeline)
+    if si(3)<dt then
+        tmp=timeline
+        timeline=zeros(size(1),size(2),dt)
+        timeline(:,:,1:si(3))=tmp
+    end
+    if si(2)~=13 then
+        error("Invalid number of particle-information!")
+    end
+    if size(timestep,'*')~=1|size(dt,'*')~=1|size(time,'*')~=1|size(final,'*')~=1 then
+        error("Expecting scalar for timestep!")
+    end
     adding=ones(particle_number,particle_number)
     simuv=timeline(:,[4:6],dt)+timeline(:,[11:13],dt)*(timestep/2)
     simu_time=zeros(particle_number,13)// ATTENTION! WRONG NUMBER OF LINES!!!! Just testcase!
@@ -210,21 +241,12 @@ function[output]=iteration(timeline, dt, time)
     acc = cor*field
     //creating a return matrix
     ret=zeros(particle_number,13)
-    accv=acc*timestep
-    testacc=simuv+accv
-//    if or(testacc>c) then
-//        tmp=duration
-//        duration=time/2+timestep
-//        pre=iteration(timeline,dt,time/2)
-////        tempt=timestep
-////        global(timestep)=timestep/2
-////        ret=iteration(timeline,dt)
-////        global(timestep)=tempt
-////        output=ret
-//        duration=tmp
-//        len=size(pre)
-//        timeline(:,:,dt:dt+len(3))=pre
-//        diffsteps=
+//    accv=acc*timestep
+//    testv=simuv+accv
+//    if or(testv>c) then
+//        rest=time+timestep
+//        tmstp=timestep*min(testv/c,1/2)
+//        output=iteration(timeline,tmstp,dt,time,rest)
 //    else
         vel=simuv+acc*timestep/2
         ret(:,[1:3])=simu_time(:,[1:3])+vel*timestep
@@ -232,13 +254,13 @@ function[output]=iteration(timeline, dt, time)
         ret(:,7)=Gammasq(vel)
         ret(:,[8:10])=squeeze(sum(vecE,1))'
         ret(:,[($-2):$])=acc
-        disp(time)
-        if time>=duration then
-            output=ret
-        else
-            timeline(:,:,dt+1)=ret
-            output=iteration(timeline,dt+1,time+timestep)
-        end
+        output=ret
+//        if time>=final then
+//            output=ret
+//        else
+//            timeline(:,:,dt+1)=ret
+//            output=iteration(timeline,timestep,dt+1,time+timestep,final)
+//        end
 //    end
 endfunction
 
@@ -297,12 +319,13 @@ function[timeline]=simulation(prime_dist)
     saving(:,[11:13],1)=diag(correction(particles(:,[4:6]),particles(:,7)))*acc
     
     //simulation:
-//    for dt=[1:steps] //first step is the exposition!
-//        disp("simulationstep:"+string(dt))
-//        next=iteration(saving,dt)
-//        saving(:,:,dt+1)=next
-//        disp(sum(saving(:,11:13,dt+1),1)*timestep./sum(saving(:,4:6,dt),1))
-//    end
-    timeline=iteration(saving,1,timestep)
+    for dt=[1:steps] //first step is the exposition!
+        disp("simulationstep:"+string(dt))
+        next=iteration(saving,dt)
+        saving(:,:,dt+1)=next
+        disp(sum(saving(:,11:13,dt+1),1)*timestep./sum(saving(:,4:6,dt),1))
+    end
+//    timeline=iteration(saving,stepsize)
+    timeline=saving
 endfunction
 disp(simulation(prime_dist))
