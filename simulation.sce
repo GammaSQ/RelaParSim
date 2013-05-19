@@ -4,7 +4,7 @@ singcharge=0.00001//1.602177*10^(-19);
 c=299792458;
 stepsize=10^(-10);
 duration=10^(-9);
-steps=int(duration/timestep)
+steps=int(duration/stepsize)
 particle_mass=1.672621777*10^(-27)//Creating starting-conditions:
 maxparticles=10;
 rmax=1.5*10^-2;
@@ -121,23 +121,23 @@ endfunction
 
 
 //simulation function:
-function[output]=iteration(timeline, timestep, dt,time,final)
+function[output]=iteration(timeline,timestep,simuv,dt,time)
     nl=argn(2)
     if nl>5 then
         error("Expecting 5 arguments at most")
     end
     if nl<2 then
-        error("timeline and initial timestep-size have to be defined!")
+        error("timeline and timestep-size have to be defined!")
     end
     if nl<3 then
+        simuv=timeline(:,[4:6],dt)+timeline(:,[11:13],dt)*(timestep/2)
+    end
+    if nl<4 then
         dt=1
         time=0
     end
-    if nl==3 then
+    if nl==4 then
         error("current time and timestep-number have both to be set or unset!")
-    end
-    if nl<5 then
-        final=duration
     end
     if typeof(timeline)~="hypermat" then
         error("Expecting a real-valued hypermat-matrix as timeline, got "+typeof(timeline))
@@ -148,14 +148,18 @@ function[output]=iteration(timeline, timestep, dt,time,final)
         timeline=zeros(size(1),size(2),dt)
         timeline(:,:,1:si(3))=tmp
     end
+    siv=size(simuv)
+    if siv(1)~=si(1) then
+        error("Need a velocitie for EVERY particle!")
+    end
     if si(2)~=13 then
         error("Invalid number of particle-information!")
     end
-    if size(timestep,'*')~=1|size(dt,'*')~=1|size(time,'*')~=1|size(final,'*')~=1 then
+    if size(timestep,'*')~=1|size(dt,'*')~=1|size(time,'*')~=1 then
         error("Expecting scalar for timestep!")
     end
     adding=ones(particle_number,particle_number)
-    simuv=timeline(:,[4:6],dt)+timeline(:,[11:13],dt)*(timestep/2)
+    //simuv=timeline(:,[4:6],dt)+timeline(:,[11:13],dt)*(timestep/2)
     simu_time=zeros(particle_number,13)// ATTENTION! WRONG NUMBER OF LINES!!!! Just testcase!
     simu_time(:,[1:13])=[squeeze(timeline(:,[1:3],dt)),simuv(:,:),Gammasq(simuv),squeeze(timeline(:,[8:13],dt))]
     //create a True-Matrix with a False-Identity
@@ -189,16 +193,16 @@ function[output]=iteration(timeline, timestep, dt,time,final)
         //check which particles haven't already been maped against eachother:
         thistime=flash&check
         //remove particles of this run from our pool:
-        flash=flash&(~check);
         //since rows can be filled to a different point and each row can get different number of particles, we need an iteraion:
         for t=1:particle_number;
-            selection=thistime(t,:);
+            selection=thistime(:,t);
             //if no particle is to be added in this row, we can move on.
             if or(selection) then;
+                flash(:,t)=flash(:,t)&(~selection)
                 sel=[timeline(selection,[1:7],dt-flashback),parmeta(selection,:)]
                 si=size(sel)
                 current_dist([addoneup(t):(addoneup(t)+si(1)-1)],:,t)=sel;
-                addoneup(t)=+si(1)+1;
+                addoneup(t)=addoneup(t)+si(1);
             end;
         end;
     end;
@@ -206,7 +210,7 @@ function[output]=iteration(timeline, timestep, dt,time,final)
     //We aproximate their history by adding all particles from our exposition.
     if or(flash) then
         for t=1:particle_number
-            selection=flash(t,:);
+            selection=flash(:,t);
             if or(selection) then
                 //this time we add all the remaining particles until one particle's environment is complete
                 current_dist([addoneup(t):$],:,t)=[squeeze(timeline(selection,[1:7],1)),parmeta(selection,:)]
@@ -264,7 +268,7 @@ function[output]=iteration(timeline, timestep, dt,time,final)
 //    end
 endfunction
 
-function[timeline]=simulation(prime_dist)
+function[timeline]=simulation(prime_dist,epsv,timestep)
     //exposition:
     pre=size(prime_dist);
     particle_number=pre(1);
@@ -314,18 +318,38 @@ function[timeline]=simulation(prime_dist)
     zer(:,[1:10])=[particles(:,[1:7]),squeeze(sum(vecE,1))']
     zer(:,[$-2:$])=acc
     
-    saving=hypermat([particle_number, 13, steps])
+    saving=hypermat([particle_number, 13, 2])
     saving(:,[1:10],1)=[particles(:,[1:3]), particles(:,[4:6])+diag(correction(particles(:,[4:6]),particles(:,7)))*acc.*(timestep/2), zer(:,[7:10])]
     saving(:,[11:13],1)=diag(correction(particles(:,[4:6]),particles(:,7)))*acc
     
     //simulation:
-    for dt=[1:steps] //first step is the exposition!
-        disp("simulationstep:"+string(dt))
-        next=iteration(saving,dt)
-        saving(:,:,dt+1)=next
-        disp(sum(saving(:,11:13,dt+1),1)*timestep./sum(saving(:,4:6,dt),1))
+    dt=1
+    time=0
+    while time<duration //first step is the exposition!
+        disp(time)
+        vel=saving(:,[11:13],dt)*timestep/2+saving(:,[4:6],dt)
+        testv=sum((vel).^2,2)
+        if or(~isreal(testv))|or(~isreal(sum((saving(:,[11:13],dt)*timestep).^2,2))) then
+            prestep=timestep/2
+            timestep=prestep(1)
+            next=iteration(saving,timestep,vel,dt,time)
+        elseif or(testv<0)|or(testv>c^2)|or(sum((saving(:,[11:13],dt)*timestep).^2,2)>epsv^2)
+            prestep=min(timestep/2,max(testv/c),min(sum((saving(:,[11:13],dt)*timestep).^2,2).^(1/2)/epsv))
+            timestep=prestep(1)
+            next=iteration(saving,timestep,vel,dt,time)
+        elseif and(testv<((c^2)/2))&and((sum((saving(:,[11:13],dt)*timestep).^2,2))<epsv^2/4)
+            disp('WUHU!')
+            prestep=min(timestep*3,min(testv/c),min(sum((saving(:,[11:13],dt)*timestep).^2,2).^(1/2)/epsv))
+            timestep=prestep(1)
+            next=iteration(saving,timestep,vel,dt,time)
+        else
+            next=iteration(saving,timestep,vel,dt,time)
+            dt=dt+1
+            time=time+timestep
+        end
+        saving(:,:,dt)=next
     end
-//    timeline=iteration(saving,stepsize)
+//    timeline=iteration(saving,timestep)
     timeline=saving
 endfunction
-disp(simulation(prime_dist))
+disp(simulation(prime_dist,1,stepsize))
