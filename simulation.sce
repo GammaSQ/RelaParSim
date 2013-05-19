@@ -7,7 +7,6 @@ duration=10^(-9);
 steps=int(duration/stepsize)
 particle_mass=1.672621777*10^(-27)//Creating starting-conditions:
 maxparticles=10;
-rmax=1.5*10^-2;
 width=10000/c*rmax
 maxcharge=7000;
 delay=rmax/c*0.1;
@@ -104,27 +103,17 @@ function[elecscal]=elecByPar(scalaR,charge,gammsq)
     elecscal=-gammsq.*charge./scalaR.*(particle_number-1)
 endfunction
 
-//Define field function:
-function[elecVec]=elecFieldFunc(q,r,t);
-    affected=rmx-c*t;
-    fullyAffected=affected+delay*c;
-    distance=norm(r(:,[1:3]));
-    elecVec=-r;
-endfunction
-
 //relativistic correction:
 function[ret]=correction(velocities,gamsq)
     velsq=squeeze(sum(velocities.^2,2))
     ret=((1+gamsq.*velsq./c^2.).*sqrt(gamsq))//.^(-1)
 endfunction
 
-
-
 //simulation function:
-function[output]=iteration(timeline,timestep,simuv,dt,time)
+function[output]=iteration(timeline,timestep,simuv,dt,time,elecFieldFunc)
     nl=argn(2)
-    if nl>5 then
-        error("Expecting 5 arguments at most")
+    if nl>6 then
+        error("Expecting 6 arguments at most")
     end
     if nl<2 then
         error("timeline and timestep-size have to be defined!")
@@ -231,27 +220,24 @@ function[output]=iteration(timeline,timestep,simuv,dt,time)
     prefield=v
     lortra=scalaRSQpar(r,simuv,simu_time(:,7))//squeeze(current_dist(:,7,:)))
     test=squeeze(1-vSq_ov_c)
-    for p= 1:particle_number
-        prefield(:,:,p)=diag(lortra(:,p))*(diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p)))
+    if nl<6 then
+        for p= 1:particle_number
+            prefield(:,:,p)=diag(lortra(:,p))*(diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p)))
+        end
+    else
+        extra=elecFieldFunc(current_dist,time)
+        for p= 1:particle_number
+            prefield(:,:,p)=diag(lortra(:,p))*(diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p)))
+            prefield(:,:,p)=prefield(:,:,p)+diag(lortra(:,p))*(extra(p,:)')
+        end
     end
     field=squeeze(sum(prefield,1))'
 
-    vecE=zeros(particle_number-1,3,particle_number)
-    for i=1:particle_number
-        vecE(:,:,i)=diag(E(:,i))*squeeze(re(:,:,i))
-    end
     //calculating the correctional value due to velocity of particle (at v+a*t/2)
     cor=diag(correction(simu_time(:,[4:6]),simu_time(:,7)).*parmeta(:,1)./parmeta(:,2))
     acc = cor*field
     //creating a return matrix
     ret=zeros(particle_number,13)
-//    accv=acc*timestep
-//    testv=simuv+accv
-//    if or(testv>c) then
-//        rest=time+timestep
-//        tmstp=timestep*min(testv/c,1/2)
-//        output=iteration(timeline,tmstp,dt,time,rest)
-//    else
         vel=simuv+acc*timestep/2
         ret(:,[1:3])=simu_time(:,[1:3])+vel*timestep
         ret(:,[4:6])=vel
@@ -259,16 +245,25 @@ function[output]=iteration(timeline,timestep,simuv,dt,time)
         ret(:,[8:10])=squeeze(sum(vecE,1))'
         ret(:,[($-2):$])=acc
         output=ret
-//        if time>=final then
-//            output=ret
-//        else
-//            timeline(:,:,dt+1)=ret
-//            output=iteration(timeline,timestep,dt+1,time+timestep,final)
-//        end
-//    end
 endfunction
 
-function[timeline]=simulation(prime_dist,epsv,timestep)
+function[timeline]=simulation(prime_dist,epsv,timestep,elecFieldFunc)
+    nl=argn(2)
+    if nl<2 then
+        error("Wrong number of minimum arguments!")
+    end
+    if nl>5 then
+        error("Wrong number of argumetns! Can take 5 at most!")
+    end
+    if nl==2 then
+        timestep=epsv/c
+    end
+    if typeof(prime_dist)=="hypermat" then
+        si=size(prime_dist)
+        dt=si(3)
+    else
+        dt=1
+    end
     //exposition:
     pre=size(prime_dist);
     particle_number=pre(1);
@@ -297,7 +292,7 @@ function[timeline]=simulation(prime_dist,epsv,timestep)
     scalmat=scalaRSQ(r,v,gam)
     R=loRezSQ(scalmat,re)
     //A=vecPotByPar(v,scalmat)
-    E=elecByPar(scalmat,squeeze(metapar(:,8,:)),gam)
+    E=elecByPar(scalmat,squeeze(metapar(:,8,:)),gam)//+elecFieldFunc(particles,parmeta,0)
     ve=vectoRE(metapar(:,[4:6],:))
     vSq_ov_c=sum(metapar(:,[4:6],:).^2,2)./c^2
     prefield=v
@@ -319,29 +314,30 @@ function[timeline]=simulation(prime_dist,epsv,timestep)
     zer(:,[$-2:$])=acc
     
     saving=hypermat([particle_number, 13, 2])
-    saving(:,[1:10],1)=[particles(:,[1:3]), particles(:,[4:6])+diag(correction(particles(:,[4:6]),particles(:,7)))*acc.*(timestep/2), zer(:,[7:10])]
-    saving(:,[11:13],1)=diag(correction(particles(:,[4:6]),particles(:,7)))*acc
+    saving(:,1:7,1)=particles
+//    saving(:,:,1)=iteration(saving,timestep,particles(:,4:6),
+//    saving(:,[1:10],1)=[particles(:,[1:3]), particles(:,[4:6])+diag(correction(particles(:,[4:6]),particles(:,7)))*acc.*(timestep/2), zer(:,[7:10])]
+//    saving(:,[11:13],1)=diag(correction(particles(:,[4:6]),particles(:,7)))*acc
     
     //simulation:
-    dt=1
     time=0
     while time<duration //first step is the exposition!
         disp(time)
         vel=saving(:,[11:13],dt)*timestep/2+saving(:,[4:6],dt)
+        next=iteration(saving,timestep,vel,dt,time)
         testv=sum((vel).^2,2)
         if or(~isreal(testv))|or(~isreal(sum((saving(:,[11:13],dt)*timestep).^2,2))) then
             prestep=timestep/2
             timestep=prestep(1)
-            next=iteration(saving,timestep,vel,dt,time)
-        elseif or(testv<0)|or(testv>c^2)|or(sum((saving(:,[11:13],dt)*timestep).^2,2)>epsv^2)
-            prestep=min(timestep/2,max(testv/c),min(sum((saving(:,[11:13],dt)*timestep).^2,2).^(1/2)/epsv))
+        elseif or(testv<0)|or(testv>c^2)|or(sum((next(:,[11:13])*timestep).^2,2)>epsv^2)
+            prestep=min(timestep/2,max(testv/(c^2)),min(sum((next(:,[11:13])*timestep).^2,2).^(1/2)/epsv))
             timestep=prestep(1)
-            next=iteration(saving,timestep,vel,dt,time)
-        elseif and(testv<((c^2)/2))&and((sum((saving(:,[11:13],dt)*timestep).^2,2))<epsv^2/4)
+        elseif and(testv<((c^2)/2))&and((sum((next(:,[11:13])*timestep).^2,2))<(epsv^2/4))
+            dt=dt+1
+            time=time+timestep
             disp('WUHU!')
-            prestep=min(timestep*3,min(testv/c),min(sum((saving(:,[11:13],dt)*timestep).^2,2).^(1/2)/epsv))
+            prestep=max(timestep*3,min(min(testv/(c^2)),min(sum((next(:,[11:13])*timestep).^2,2).^(1/2)/epsv)))
             timestep=prestep(1)
-            next=iteration(saving,timestep,vel,dt,time)
         else
             next=iteration(saving,timestep,vel,dt,time)
             dt=dt+1
@@ -352,4 +348,35 @@ function[timeline]=simulation(prime_dist,epsv,timestep)
 //    timeline=iteration(saving,timestep)
     timeline=saving
 endfunction
-disp(simulation(prime_dist,1,stepsize))
+
+elfieldfun(returns scalar field)
+
+rmax=1.5*10^-2;
+function[elecVec]=elecFieldFunc(pars,time)
+    r=sum(pars(:,1:3).^2,2)
+    si=size(r)
+    ret=zeros(si(1),3)
+    aff=rmax-(time*c)
+    fullaff=delay*c+rmax-(time*c)
+    mat1=r>aff^2
+    mat2=r>fullaff^2
+    if fullaff>0 then
+        ret(mat2,:)=elfieldunf(fullchrge,r(mat2))
+    else
+        ret(~mat2,:)=elfiedlfun(fullcharge,r(~mat2))
+    end
+    if aff<0 &fullaff>0 then
+        ret(r<fullaff^2,:)=elfieldfun(partcharge,r(r<fullaff^2)
+    end
+    if aff>0 then
+        ret(mat1,:)=ret(mat1,:)+elfiedlfun(partcharge,r(mat1))
+    else
+        ret(~mat1,:)=ret(~mat1,:)-elfieldfun(partcharge,r(~mat1))
+    end
+    for i=1:si(1)
+        if  then
+        end
+    end
+endfunction
+
+disp(simulation(prime_dist,0.0001,stepsize))
