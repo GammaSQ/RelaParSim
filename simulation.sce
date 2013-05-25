@@ -2,6 +2,9 @@
 c=299792458;
 
 //Define basic geometrics:
+//SCI2C: NIN=2
+//SCI2C: NOUT=1
+//SCI2C: OUT(1).TP=IN(1).TP
 function[vector]=vectoR(pars,par)
     unit=ones(squeeze(pars(:,1,:)))'
     r=pars
@@ -211,21 +214,15 @@ function[output]=iteration(timeline,timestep,simuv,dt,time,elecFieldFunc)
     prefield=v
     lortra=scalaRSQpar(r,simuv,simu_time(:,7)).^(1/2)//squeeze(current_dist(:,7,:)))
     test=squeeze(1-vSq_ov_c)
-    if nl<6 then
-        for p= 1:particle_number
-            prefield(:,:,p)=diag(lortra(:,p))*(diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p)))
-        end
-    else
-        for p= 1:particle_number
-            prefield(:,:,p)=diag(lortra(:,p))*(diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p)))
-            //disp(size(prefield(:,:,p)))
-            //prefield(:,:,p)=squeeze(prefield(:,:,p))+scalaRSQ(extra,simu_time(:,4:6),simu_time(:,7))
-        end
+    for p= 1:particle_number
+        prefield(:,:,p)=diag(lortra(:,p))*(diag(E(:,p).*test(:,p))*squeeze(re(:,:,p))+diag(E(:,p).*vSq_ov_c(:,p))*squeeze(ve(:,:,p)))
     end
+    disp(prefield)
     field=squeeze(sum(prefield,1))'
     if nl == 6 then
         extra=elecFieldFunc(simu_time,time)
         addextra=diag(scalaRSQ(extra,simu_time(:,4:6),simu_time(:,7)).^(1/2))*extra
+        disp(addextra)
         field=field+addextra
     end
     disp(size(field))
@@ -272,7 +269,8 @@ function[timeline]=simulation(prime_dist,epsv,timestep,elecFieldFunc)
     
     time=0
     timseave=[]
-    while time<duration //first step is the exposition!
+    steps=int(duration/timestep)
+    for i=1:steps //first step is the exposition!
         disp(time)
         disp(dt)
         timesave(dt)=time
@@ -282,24 +280,9 @@ function[timeline]=simulation(prime_dist,epsv,timestep,elecFieldFunc)
         else
             next=iteration(saving,timestep,vel,dt,time)
         end
-        testv=sum((vel).^2,2)
-        if ~isreal(testv)|~isreal(next(:,[11:13])) then
-            prestep=timestep/2
-            timestep=prestep(1)
-        elseif or(testv<0)|or(testv>c^2)|or(sum((next(:,[11:13])*timestep).^2,2)>epsv^2)
-            prestep=min(timestep/2,max(testv/(c^2)),min(sum((next(:,[11:13])*timestep).^2,2).^(1/2)/epsv))
-            timestep=prestep(1)
-//        elseif and(testv<((c^2)/2))&and((sum((next(:,[11:13])*timestep).^2,2))<(epsv^2/4))
-//            dt=dt+1
-//            time=time+timestep
-//            prestep=max(timestep*3,min(min(testv/(c^2)),min(sum((next(:,[11:13])*timestep).^2,2).^(1/2)/epsv)))
-//            timestep=prestep(1)
-//            saving(:,:,dt)=next
-        else
-            dt=dt+1
-            time=time+timestep
-            saving(:,:,dt)=next
-        end
+        dt=dt+1
+        time=time+timestep
+        saving(:,:,dt)=next
     end
 //    timeline=iteration(saving,timestep)
     timeline=saving
@@ -353,4 +336,4 @@ function[elecVec]=elFieldFunc(pars,time)
     elecVec=-diag(ret)*pars(:,1:3)
 endfunction
 
-disp(simulation(prime_dist,1000000000000,stepsize,elFieldFunc))
+disp(simulation(prime_dist,1,stepsize,elFieldFunc))
